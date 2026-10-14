@@ -5,6 +5,165 @@ let bankRows = [];
 let results = [];
 let activeFilter = "Todos";
 
+const STORAGE_KEY = "conciliacion_pagos_v2";
+
+let manualAssignments = {};
+let manualCategories = {};
+
+try {
+  const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+  manualAssignments = saved.assignments || {};
+  manualCategories = saved.categories || {};
+} catch (error) {
+  manualAssignments = {};
+  manualCategories = {};
+}
+
+function saveLocalState() {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        assignments: manualAssignments,
+        categories: manualCategories,
+      }),
+    );
+  } catch (error) {
+    showMessage(
+      "No se pudieron guardar los cambios en este navegador. Revisa el espacio disponible.",
+      "error",
+    );
+  }
+}
+
+// Claves basadas en los datos, no en el índice de la fila.
+function bankKey(bank) {
+  return [
+    bank.__row,
+    bank.__date,
+    bank.__nut,
+    bank.__amount,
+    bank.__concept,
+    bank.__reference,
+  ].join("|");
+}
+
+function formKey(form) {
+  return [
+    form.__row,
+    form.__receipt,
+    form.__name,
+    form.__amount,
+    form.__block,
+    form.__villa,
+    form.__month,
+    form.__year,
+  ].join("|");
+}
+
+function defaultCategory(bank) {
+  if (isSpecial(bank)) return "Especial";
+  if (isIncome(bank)) return "Ingreso";
+  return "Por clasificar";
+}
+
+function getCategory(bank) {
+  return manualCategories[bankKey(bank)] || defaultCategory(bank);
+}
+
+function getAutomaticForms(bankIndex) {
+  // No utilizar coincidencias ambiguas como asignaciones definitivas.
+  const isUnallocated = results.some(
+    (row) =>
+      row.__isBankOnly &&
+      row._status === "Sin coincidencia" &&
+      (row._bankIds || []).includes(bankIndex),
+  );
+
+  if (isUnallocated) return [];
+
+  return results.filter(
+    (row) =>
+      !row.__isBankOnly &&
+      ["Conciliado", "Revisar"].includes(row._status) &&
+      (row._bankIds || []).length === 1 &&
+      row._bankIds[0] === bankIndex,
+  );
+}
+
+function getAssignedForms(bankIndex) {
+  const key = bankKey(bankRows[bankIndex]);
+
+  // Una asignación manual, incluso "__UNASSIGNED__", prevalece
+  // sobre el resultado automático.
+  if (Object.prototype.hasOwnProperty.call(manualAssignments, key)) {
+    const selected = manualAssignments[key];
+
+    if (selected === "__UNASSIGNED__") return [];
+
+    const form = formRows.find((row) => formKey(row) === selected);
+    return form ? [form] : [];
+  }
+
+  return getAutomaticForms(bankIndex);
+}
+
+function isFormAssignedElsewhere(selectedFormKey, currentBankKey) {
+  if (!selectedFormKey) return false;
+
+  // Evita asignar manualmente el mismo pago a dos movimientos.
+  for (const [key, value] of Object.entries(manualAssignments)) {
+    if (key !== currentBankKey && value === selectedFormKey) return true;
+  }
+
+  for (let i = 0; i < bankRows.length; i++) {
+    if (bankKey(bankRows[i]) === currentBankKey) continue;
+
+    const manuallyOverridden = Object.prototype.hasOwnProperty.call(
+      manualAssignments,
+      bankKey(bankRows[i]),
+    );
+
+    if (manuallyOverridden) continue;
+
+    if (getAutomaticForms(i).some((row) => formKey(row) === selectedFormKey)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function amountForForms(forms) {
+  return forms.reduce((sum, form) => sum + Number(form.__amount || 0), 0);
+}
+
+function movementStatus(bank, assignedForms) {
+  const category = getCategory(bank);
+
+  if (category === "Gasto") return "Gasto";
+  if (category === "Especial") return "Especial";
+  if (category === "Por clasificar") return "Por clasificar";
+
+  if (!assignedForms.length) return "Pendiente";
+
+  return amountClose(bank.__amount, amountForForms(assignedForms))
+    ? "Conciliado"
+    : "Pendiente";
+}
+
+function statusHtml(status) {
+  const styles = {
+    Conciliado: "status-matched",
+    Pendiente: "status-pending",
+    Gasto: "status-expense",
+    Especial: "status-special",
+    "Por clasificar": "status-unclassified",
+  };
+
+  return `<span class="status-pill ${styles[status] || "status-unclassified"}">${esc(status)}</span>`;
+}
+
 const $ = (id) => document.getElementById(id);
 
 /*
@@ -801,307 +960,364 @@ function esc(value) {
 }
 
 function updateStats() {
-  const core = results.filter((row) => !row.__isBankOnly);
+  let matchedAmount = 0;
+  let pendingAmount = 0;
+  let expenseAmount = 0;
+  let unclassifiedAmount = 0;
+  let matchedCount = 0;
+  let pendingCount = 0;
+  let expenseCount = 0;
+  let unclassifiedCount = 0;
 
-  $("statForm").textContent = core.length;
-  $("statBank").textContent = bankRows.length;
-  $("statMatched").textContent = core.filter(
-    (row) => row._status === "Conciliado",
-  ).length;
-  $("statReview").textContent = core.filter(
-    (row) => row._status === "Revisar",
-  ).length;
-  $("statMissing").textContent = core.filter(
-    (row) => row._status === "Sin coincidencia",
-  ).length;
+  bankRows.forEach((bank, index) => {
+    const assigned = getAssignedForms(index);
+    const status = movementStatus(bank, assigned);
+    const amount = Number(bank.__amount || 0);
+
+    if (status === "Conciliado") {
+      matchedAmount += amount;
+      matchedCount++;
+    } else if (status === "Pendiente") {
+      pendingAmount += amount;
+      pendingCount++;
+    } else if (status === "Gasto") {
+      expenseAmount += Math.abs(amount);
+      expenseCount++;
+    } else if (status === "Por clasificar") {
+      unclassifiedAmount += Math.abs(amount);
+      unclassifiedCount++;
+    }
+  });
+
+  $("sumMatched").textContent = money(matchedAmount);
+  $("sumPending").textContent = money(pendingAmount);
+  $("sumExpenses").textContent = money(expenseAmount);
+  $("sumUnclassified").textContent = money(unclassifiedAmount);
+
+  $("countMatched").textContent = `${matchedCount} movimientos`;
+  $("countPending").textContent = `${pendingCount} movimientos`;
+  $("countExpenses").textContent = `${expenseCount} movimientos`;
+  $("countUnclassified").textContent = `${unclassifiedCount} movimientos`;
 }
-
 
 function renderResults() {
   const query = norm($("searchBox").value);
+  const filter = $("statusFilter").value;
 
-  const bankFor = (row) =>
-    (row._bankIds || [])
-      .map((index) => bankRows[index])
-      .filter(Boolean);
+  const formOptions = formRows.map((form) => {
+    const label = [
+      form.__name || "Sin propietario",
+      `Mz ${form.__block || "—"} / Villa ${form.__villa || "—"}`,
+      periodText(form) || "Sin período",
+      money(form.__amount),
+      form.__receipt ? `Comp. ${form.__receipt}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
 
-  function matchesQuery(row, bank = []) {
-    const text = norm([
-      row.__name,
-      row.__block,
-      row.__villa,
-      row.__receipt,
-      row.__month,
-      row.__year,
-      row.__type,
-      row._method,
-      row._note,
-      ...bank.map((item) => [
-        item.__nut,
-        item.__concept,
-        item.__description,
-        item.__reference,
-        item.__date,
-      ].join(" ")),
-    ].join(" "));
+    return { key: formKey(form), label, form };
+  });
 
-    return !query || text.includes(query);
-  }
+  const visibleRows = bankRows
+    .map((bank, index) => {
+      const assigned = getAssignedForms(index);
+      const category = getCategory(bank);
+      const status = movementStatus(bank, assigned);
+      const assignedAmount = amountForForms(assigned);
+      const currentKey = bankKey(bank);
+      const hasManual = Object.prototype.hasOwnProperty.call(
+        manualAssignments,
+        currentKey,
+      );
 
-  const matchedReview = results.filter((row) =>
-    !row.__isBankOnly &&
-    ["Conciliado", "Revisar"].includes(row._status) &&
-    matchesQuery(row, bankFor(row))
-  );
+      const automatic = getAutomaticForms(index);
+      const selectedValue = hasManual
+        ? manualAssignments[currentKey]
+        : automatic.length === 1
+          ? formKey(automatic[0])
+          : "";
 
-  const formOnly = results.filter((row) =>
-    !row.__isBankOnly &&
-    row._status === "Sin coincidencia" &&
-    matchesQuery(row, bankFor(row))
-  );
+      const bankLabel =
+        bankName(bank) ||
+        bank.__description ||
+        bank.__type ||
+        "Movimiento sin descripción";
 
-  const bankOnly = results.filter((row) =>
-    row.__isBankOnly &&
-    row._status === "Sin coincidencia" &&
-    matchesQuery(row, bankFor(row))
-  );
+      const searchable = norm(
+        [
+          bankLabel,
+          bank.__date,
+          bank.__nut,
+          bank.__concept,
+          bank.__description,
+          bank.__reference,
+          bank.__type,
+          category,
+          status,
+          ...assigned.map((form) =>
+            [
+              form.__name,
+              form.__block,
+              form.__villa,
+              form.__receipt,
+              form.__month,
+              form.__year,
+            ].join(" "),
+          ),
+        ].join(" "),
+      );
 
-  const ignored = results.filter((row) =>
-    row.__isBankOnly &&
-    row._status === "Ignorado" &&
-    matchesQuery(row, bankFor(row))
-  );
+      return {
+        bank,
+        index,
+        assigned,
+        category,
+        status,
+        assignedAmount,
+        currentKey,
+        selectedValue,
+        bankLabel,
+        searchable,
+      };
+    })
+    .filter((item) => {
+      if (query && !item.searchable.includes(query)) return false;
+      if (filter !== "Todos" && item.status !== filter) return false;
+      return true;
+    });
 
   $("shownCount").textContent =
-    `${matchedReview.length} conciliados/por revisar · ` +
-    `${formOnly.length} del formulario sin coincidencia · ` +
-    `${bankOnly.length} del banco sin coincidencia`;
+    `${visibleRows.length} de ${bankRows.length} movimientos`;
 
-  $("formOnlyCount").textContent =
-    `${formOnly.length} registros`;
+  $("bankTableBody").innerHTML =
+    visibleRows
+      .map((item) => {
+        const {
+          bank,
+          index,
+          assigned,
+          category,
+          status,
+          assignedAmount,
+          currentKey,
+          selectedValue,
+          bankLabel,
+        } = item;
 
-  $("bankOnlyCount").textContent =
-    `${bankOnly.length} movimientos`;
+        const assignedLabel = assigned.length
+          ? assigned
+              .map(
+                (form) =>
+                  `${form.__name || "Sin propietario"} · Mz ${form.__block || "—"} / Villa ${form.__villa || "—"}`,
+              )
+              .join("<br>")
+          : "";
 
-  // 1. Conciliados y por revisar
-  $("matchedReviewBody").innerHTML = matchedReview.map((row) => {
-    const bank = bankFor(row);
+        const optionHtml = formOptions
+          .map((option) => {
+            const isUsed = isFormAssignedElsewhere(option.key, currentKey);
+            const isSelected = selectedValue === option.key;
 
-    const dates = bank
-      .map((item) => item.__date)
-      .filter(Boolean)
-      .join(", ") || "—";
+            return `<option value="${esc(option.key)}"
+        ${isSelected ? "selected" : ""}
+        ${isUsed && !isSelected ? "disabled" : ""}>
+        ${esc(option.label)}${isUsed && !isSelected ? " (asignado)" : ""}
+      </option>`;
+          })
+          .join("");
 
-    const nuts = bank
-      .map((item) => item.__nut)
-      .filter(Boolean)
-      .join(", ") || "—";
+        const assignmentHtml = `
+      ${
+        assigned.length > 1
+          ? `<div class="mb-2 text-xs text-slate-600">${assignedLabel}</div>`
+          : assigned.length === 1
+            ? `<div class="mb-2 text-xs text-slate-600">${esc(assignedLabel)}</div>`
+            : `<div class="mb-2 text-xs text-amber-700">Sin registro asignado</div>`
+      }
+      <select class="assignment-select" data-bank-index="${index}"
+        aria-label="Asignar registro del formulario">
+        <option value="">Seleccionar registro...</option>
+        <option value="__UNASSIGNED__"
+          ${selectedValue === "__UNASSIGNED__" ? "selected" : ""}>
+          Quitar asignación
+        </option>
+        ${optionHtml}
+      </select>`;
 
-    const observation = row._status === "Revisar"
-      ? row._note || "Requiere validación manual."
-      : "—";
+        const categoryOptions = [
+          ["Ingreso", "Ingreso / pago"],
+          ["Gasto", "Gasto"],
+          ["Especial", "Movimiento especial"],
+          ["Por clasificar", "Por clasificar"],
+        ]
+          .map(
+            ([value, label]) =>
+              `<option value="${value}" ${category === value ? "selected" : ""}>${label}</option>`,
+          )
+          .join("");
 
-    return `
-      <tr class="hover:bg-slate-50 align-top">
-        <td class="px-4 py-3 font-semibold">
-          ${esc(row.__name || "(Propietario no registrado)")}
-        </td>
-        <td class="px-4 py-3">${esc(row.__block || "—")}</td>
-        <td class="px-4 py-3">${esc(row.__villa || "—")}</td>
-        <td class="px-4 py-3 font-medium whitespace-nowrap">
-          ${money(row.__amount)}
-        </td>
-        <td class="px-4 py-3 whitespace-nowrap">
-          ${esc(dates)}
-        </td>
-        <td class="px-4 py-3 font-medium whitespace-nowrap">
-          ${money(row._bankAmount)}
-        </td>
-        <td class="px-4 py-3 font-mono text-xs">
-          ${esc(nuts)}
-        </td>
-        <td class="px-4 py-3 max-w-sm whitespace-normal">
-          ${esc(observation)}
-        </td>
-        <td class="px-4 py-3">
-          ${statusPill(row._status)}
-        </td>
-      </tr>`;
-  }).join("") || `
-    <tr>
-      <td colspan="9" class="px-4 py-8 text-center text-slate-500">
-        No hay registros conciliados o por revisar.
-      </td>
-    </tr>`;
-
-  // 2. Registros del formulario sin coincidencia
-  $("formOnlyBody").innerHTML = formOnly.map((row) => `
-    <tr class="hover:bg-slate-50 align-top">
-      <td class="px-4 py-3 font-semibold">
-        ${esc(row.__name || "(Propietario no registrado)")}
-      </td>
-      <td class="px-4 py-3">${esc(row.__block || "—")}</td>
-      <td class="px-4 py-3">${esc(row.__villa || "—")}</td>
-      <td class="px-4 py-3">
-        ${esc(periodText(row) || "—")}
-        <div class="text-xs text-slate-500 mt-1">
-          ${esc(row.__type || "—")}
-        </div>
-      </td>
-      <td class="px-4 py-3 font-medium whitespace-nowrap">
-        ${money(row.__amount)}
-      </td>
-      <td class="px-4 py-3 font-mono text-xs">
-        ${esc(row.__receipt || "—")}
-      </td>
-      <td class="px-4 py-3">${esc(row.__row)}</td>
-    </tr>
-  `).join("") || `
-    <tr>
-      <td colspan="7" class="px-4 py-8 text-center text-slate-500">
-        No hay registros del formulario sin coincidencia.
-      </td>
-    </tr>`;
-
-  // 3. Movimientos bancarios sin coincidencia
-  $("bankOnlyBody").innerHTML = bankOnly.map((row) => {
-    const bank = bankFor(row)[0];
-
-    return `
-      <tr class="hover:bg-slate-50 align-top">
-        <td class="px-4 py-3">
-          <div class="font-semibold">
-            ${esc(bankName(bank) || bank.__description || "—")}
-          </div>
+        return `
+      <tr>
+        <td class="whitespace-nowrap">${esc(bank.__date || "—")}</td>
+        <td>
+          <div class="font-semibold">${esc(bankLabel)}</div>
           <div class="text-xs text-slate-500 mt-1">
             ${esc(bank.__description || bank.__type || "")}
           </div>
+          <div class="text-xs text-slate-400 mt-1">
+            Fila ${esc(bank.__row)}
+          </div>
         </td>
-        <td class="px-4 py-3 whitespace-nowrap">
-          ${esc(bank.__date || "—")}
+        <td>
+          <div class="font-mono text-xs">${esc(bank.__nut || "—")}</div>
+          <div class="text-xs text-slate-500 mt-1">${esc(bank.__reference || "")}</div>
         </td>
-        <td class="px-4 py-3 font-semibold whitespace-nowrap">
-          ${money(bank.__amount)}
+        <td class="text-right whitespace-nowrap font-semibold">${money(bank.__amount)}</td>
+        <td class="min-w-[280px]">${assignmentHtml}</td>
+        <td class="text-right whitespace-nowrap">
+          ${assigned.length ? money(assignedAmount) : "—"}
+          ${
+            assigned.length && !amountClose(bank.__amount, assignedAmount)
+              ? `<div class="text-xs text-amber-700 mt-1">Diferencia: ${money(bank.__amount - assignedAmount)}</div>`
+              : ""
+          }
         </td>
-        <td class="px-4 py-3 font-mono text-xs">
-          ${esc(bank.__nut || "—")}
+        <td>
+          <select class="category-select" data-category-index="${index}"
+            aria-label="Clasificar movimiento">
+            ${categoryOptions}
+          </select>
         </td>
-        <td class="px-4 py-3 max-w-sm whitespace-normal">
-          ${esc(bank.__reference || "—")}
-        </td>
-        <td class="px-4 py-3">${esc(bank.__row)}</td>
+        <td>${statusHtml(status)}</td>
       </tr>`;
-  }).join("") || `
+      })
+      .join("") ||
+    `
     <tr>
-      <td colspan="6" class="px-4 py-8 text-center text-slate-500">
-        No hay ingresos bancarios sin coincidencia.
+      <td colspan="8" class="text-center text-slate-500 py-10">
+        No hay movimientos que coincidan con esta búsqueda.
       </td>
     </tr>`;
 
-  // 4. Movimientos ignorados
-  $("ignoredBody").innerHTML = ignored.map((row) => {
-    const bank = bankFor(row)[0];
+  // Los registros del formulario que no están asignados se mantienen visibles
+  // para que el usuario pueda detectar pagos reportados sin respaldo bancario.
+  const assignedFormKeys = new Set();
 
-    return `
-      <tr class="hover:bg-slate-50 align-top">
-        <td class="px-4 py-3">
-          ${esc(bank.__concept || bank.__description || "—")}
-        </td>
-        <td class="px-4 py-3 whitespace-nowrap">
-          ${esc(bank.__date || "—")}
-        </td>
-        <td class="px-4 py-3 font-medium whitespace-nowrap">
-          ${money(bank.__amount)}
-        </td>
-        <td class="px-4 py-3 font-mono text-xs">
-          ${esc(bank.__nut || "—")}
-        </td>
-        <td class="px-4 py-3">
-          ${esc(row._note || "—")}
-        </td>
-      </tr>`;
-  }).join("") || `
+  bankRows.forEach((bank, index) => {
+    getAssignedForms(index).forEach((form) =>
+      assignedFormKeys.add(formKey(form)),
+    );
+  });
+
+  const unmatchedForms = formRows.filter(
+    (form) => !assignedFormKeys.has(formKey(form)),
+  );
+
+  $("unmatchedFormCount").textContent = `(${unmatchedForms.length})`;
+
+  $("unmatchedFormBody").innerHTML =
+    unmatchedForms
+      .map(
+        (form) => `
     <tr>
-      <td colspan="5" class="px-4 py-6 text-center text-slate-500">
-        No hay movimientos ignorados.
+      <td class="font-semibold">${esc(form.__name || "Sin propietario")}</td>
+      <td>Mz ${esc(form.__block || "—")} · Villa ${esc(form.__villa || "—")}</td>
+      <td>
+        ${esc(periodText(form) || "—")}
+        <div class="text-xs text-slate-500 mt-1">${esc(form.__type || "")}</div>
+      </td>
+      <td class="font-mono text-xs">${esc(form.__receipt || "—")}</td>
+      <td class="text-right font-semibold whitespace-nowrap">${money(form.__amount)}</td>
+    </tr>
+  `,
+      )
+      .join("") ||
+    `
+    <tr>
+      <td colspan="5" class="text-center text-slate-500 py-6">
+        Todos los registros del formulario están asignados.
       </td>
     </tr>`;
+
+  updateStats();
 }
-
 
 /*
  * EXPORTAR RESULTADOS
  */
-function exportResults() {
-  if (!results.length) return;
 
-  const output = results.map((row) => {
-    const bank = (row._bankIds || [])
-      .map((index) => bankRows[index])
-      .filter(Boolean);
+function exportResults() {
+  if (!bankRows.length) return;
+
+  const output = bankRows.map((bank, index) => {
+    const assigned = getAssignedForms(index);
+    const category = getCategory(bank);
+    const status = movementStatus(bank, assigned);
 
     return {
-      Estado: row._status,
-      Propietario: row.__name || "",
-      Manzana: row.__block || "",
-      Villa: row.__villa || "",
-      Año: row.__year || "",
-      Mes: row.__month || "",
-      Tipo: row.__type || "",
-      "Valor formulario": row.__isBankOnly ? "" : row.__amount,
-      Comprobante: row.__receipt || "",
-      "Fila origen": row.__row,
-      "Fecha banco": bank.map((item) => item.__date).join(" | "),
-      NUT: bank.map((item) => item.__nut).join(" | "),
-      "Valor banco": row._bankAmount || 0,
-      "Concepto banco": bank.map((item) => item.__concept).join(" | "),
-      "Descripción banco": bank.map((item) => item.__description).join(" | "),
-      Método: row._method || "",
-      Observación: row._note || "",
+      Estado: status,
+      Categoría: category,
+      Fecha: bank.__date || "",
+      Movimiento: bankName(bank) || bank.__description || bank.__type || "",
+      NUT: bank.__nut || "",
+      Referencia: bank.__reference || "",
+      "Valor banco": bank.__amount,
+      "Propietario asignado": assigned.map((f) => f.__name).join(" | "),
+      Manzana: assigned.map((f) => f.__block).join(" | "),
+      Villa: assigned.map((f) => f.__villa).join(" | "),
+      Período: assigned.map(periodText).join(" | "),
+      Comprobante: assigned.map((f) => f.__receipt).join(" | "),
+      "Valor formulario": assigned.length ? amountForForms(assigned) : "",
+      Diferencia: assigned.length
+        ? Number(bank.__amount) - amountForForms(assigned)
+        : "",
+      "Fila banco": bank.__row,
+      "Observación bancaria": bank.__description || "",
     };
   });
 
   const workbook = XLSX.utils.book_new();
-  const detailSheet = XLSX.utils.json_to_sheet(output);
+  const detail = XLSX.utils.json_to_sheet(output);
 
-  detailSheet["!cols"] = [
+  detail["!cols"] = [
     { wch: 18 },
+    { wch: 20 },
+    { wch: 14 },
+    { wch: 36 },
+    { wch: 18 },
+    { wch: 28 },
+    { wch: 16 },
     { wch: 32 },
     { wch: 12 },
-    { wch: 10 },
-    { wch: 10 },
-    { wch: 16 },
+    { wch: 12 },
     { wch: 22 },
-    { wch: 16 },
+    { wch: 20 },
+    { wch: 18 },
     { wch: 16 },
     { wch: 12 },
-    { wch: 18 },
-    { wch: 18 },
-    { wch: 16 },
     { wch: 40 },
-    { wch: 28 },
-    { wch: 24 },
-    { wch: 70 },
   ];
 
-  XLSX.utils.book_append_sheet(workbook, detailSheet, "Conciliación");
-
-  const core = results.filter((row) => !row.__isBankOnly);
+  XLSX.utils.book_append_sheet(workbook, detail, "Movimientos");
 
   const summary = [
-    { Indicador: "Filas del formulario", Valor: formRows.length },
     { Indicador: "Movimientos bancarios", Valor: bankRows.length },
+    { Indicador: "Ingresos conciliados", Valor: $("sumMatched").textContent },
+    { Indicador: "Ingresos pendientes", Valor: $("sumPending").textContent },
+    { Indicador: "Gastos clasificados", Valor: $("sumExpenses").textContent },
     {
-      Indicador: "Filas conciliadas",
-      Valor: core.filter((row) => row._status === "Conciliado").length,
+      Indicador: "Movimientos por clasificar",
+      Valor: $("sumUnclassified").textContent,
     },
     {
-      Indicador: "Filas para revisar",
-      Valor: core.filter((row) => row._status === "Revisar").length,
-    },
-    {
-      Indicador: "Filas sin coincidencia",
-      Valor: core.filter((row) => row._status === "Sin coincidencia").length,
+      Indicador: "Pagos del formulario sin respaldo bancario",
+      Valor: formRows.filter((form) => {
+        return !bankRows.some((bank, index) =>
+          getAssignedForms(index).some(
+            (assigned) => formKey(assigned) === formKey(form),
+          ),
+        );
+      }).length,
     },
   ];
 
@@ -1111,33 +1327,79 @@ function exportResults() {
     "Resumen",
   );
 
-  XLSX.writeFile(workbook, "resultado_conciliacion.xlsx");
+  XLSX.writeFile(workbook, "administracion_pagos.xlsx");
 }
 
 /*
  * EVENTOS
  */
+
+/* EVENTOS */
 $("runBtn").addEventListener("click", reconcile);
 $("searchBox").addEventListener("input", renderResults);
+$("statusFilter").addEventListener("change", renderResults);
 $("exportBtn").addEventListener("click", exportResults);
 
+$("bankTableBody").addEventListener("change", (event) => {
+  const assignmentSelect = event.target.closest("[data-bank-index]");
+
+  if (assignmentSelect) {
+    const index = Number(assignmentSelect.dataset.bankIndex);
+    const bank = bankRows[index];
+    if (!bank) return;
+
+    const key = bankKey(bank);
+    const value = assignmentSelect.value || "__UNASSIGNED__";
+
+    if (value !== "__UNASSIGNED__" && isFormAssignedElsewhere(value, key)) {
+      showMessage(
+        "Este registro ya está asignado a otro movimiento bancario. Quita la asignación anterior primero.",
+        "error",
+      );
+      renderResults();
+      return;
+    }
+
+    manualAssignments[key] = value;
+    saveLocalState();
+    renderResults();
+
+    showMessage("Asignación guardada en este navegador.", "success");
+    return;
+  }
+
+  const categorySelect = event.target.closest("[data-category-index]");
+
+  if (categorySelect) {
+    const index = Number(categorySelect.dataset.categoryIndex);
+    const bank = bankRows[index];
+    if (!bank) return;
+
+    manualCategories[bankKey(bank)] = categorySelect.value;
+    saveLocalState();
+    renderResults();
+
+    showMessage("Categoría guardada en este navegador.", "success");
+  }
+});
 
 $("resetBtn").addEventListener("click", () => {
   formRows = [];
   bankRows = [];
   results = [];
-  activeFilter = "Todos";
 
   $("formFile").value = "";
   $("bankFile").value = "";
-  $("formFileName").textContent = "Ningún archivo seleccionado";
-  $("bankFileName").textContent = "Ningún archivo seleccionado";
+  $("formFileName").textContent = "Seleccionar Excel o CSV";
+  $("bankFileName").textContent = "Seleccionar Excel o CSV";
   $("runBtn").disabled = true;
   $("results").classList.add("hidden");
   $("message").classList.add("hidden");
+  $("searchBox").value = "";
+  $("statusFilter").value = "Todos";
+});
 
-  document.querySelectorAll(".filterTab").forEach((tab) => {
-    tab.classList.toggle("tab-active", tab.dataset.filter === "Todos");
-    tab.classList.toggle("text-slate-500", tab.dataset.filter !== "Todos");
-  });
+// Refrescar el resumen y la tabla cuando el navegador restaura la página.
+window.addEventListener("pageshow", () => {
+  if (bankRows.length && results.length) renderResults();
 });

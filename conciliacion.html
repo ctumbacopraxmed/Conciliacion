@@ -1,319 +1,179 @@
+
 <!doctype html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Conciliación de pagos</title>
-    <link href="index.css" rel="stylesheet" />
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  </head>
-
-  <body class="text-slate-800">
-    <div class="max-w-7xl mx-auto p-4 md:p-8">
-      <header class="mb-7 flex flex-col md:flex-row md:justify-between gap-4">
-        <div>
-          <p class="text-blue-700 font-semibold text-sm mb-2">
-            ADMINISTRACIÓN · URBANIZACIÓN
-          </p>
-          <h1 class="text-3xl font-bold">Conciliación de pagos</h1>
-          <p class="text-slate-500 mt-2">
-            Compara los pagos reportados con los movimientos bancarios.
-          </p>
-        </div>
-        <button
-          id="resetBtn"
-          class="border bg-white rounded-xl px-4 py-2 h-fit"
-        >
-          Reiniciar
-        </button>
-      </header>
-
-      <!-- ARCHIVOS -->
-      <section class="grid md:grid-cols-2 gap-4 mb-6">
-        <div class="bg-white rounded-2xl border p-5">
-          <h2 class="font-bold text-lg mb-2">1. Formulario de pagos</h2>
-          <p class="text-sm text-slate-500 mb-4">
-            Fecha, Manzana, Villa, Propietario, Tipo, Año, Mes, Valor y
-            Comprobante.
-          </p>
-
-          <label
-            id="formDrop"
-            class="dropzone rounded-xl p-6 flex flex-col items-center text-center cursor-pointer"
-          >
-            <span class="text-3xl mb-2">📄</span>
-            <span class="font-semibold">Seleccionar formulario.xlsx</span>
-            <span class="text-xs text-slate-500 mt-1">
-              También puedes arrastrar el archivo
-            </span>
-            <input id="formFile" type="file" accept=".xlsx,.xls,.csv" hidden />
-          </label>
-
-          <div id="formFileName" class="text-sm text-slate-500 mt-3">
-            Ningún archivo seleccionado
-          </div>
-        </div>
-
-        <div class="bg-white rounded-2xl border p-5">
-          <h2 class="font-bold text-lg mb-2">2. Estado bancario</h2>
-          <p class="text-sm text-slate-500 mb-4">
-            Fecha real, Tipo, NUT, Valor, Concepto, Descripción y Referencia
-            adicional.
-          </p>
-
-          <label
-            id="bankDrop"
-            class="dropzone rounded-xl p-6 flex flex-col items-center text-center cursor-pointer"
-          >
-            <span class="text-3xl mb-2">🏦</span>
-            <span class="font-semibold">Seleccionar banco.xlsx</span>
-            <span class="text-xs text-slate-500 mt-1">
-              También puedes arrastrar el archivo
-            </span>
-            <input id="bankFile" type="file" accept=".xlsx,.xls,.csv" hidden />
-          </label>
-
-          <div id="bankFileName" class="text-sm text-slate-500 mt-3">
-            Ningún archivo seleccionado
-          </div>
-        </div>
-      </section>
-
-      <!-- CONFIGURACIÓN -->
-      <section class="bg-white rounded-2xl border p-5 mb-6">
-        <h2 class="font-bold text-lg">3. Ejecutar conciliación</h2>
-        <p class="text-sm text-slate-500 mt-1 mb-4">
-          Los archivos se procesan en este navegador.
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Administración de pagos</title>
+  <link rel="stylesheet" href="index.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body class="text-slate-800">
+  <main class="max-w-[1600px] mx-auto p-4 md:p-8">
+    <header class="flex flex-wrap items-center justify-between gap-4 mb-6">
+      <div>
+        <p class="text-xs font-semibold tracking-wider text-blue-700 uppercase">
+          Administración · Urbanización
         </p>
+        <h1 class="text-2xl md:text-3xl font-bold mt-1">Control de pagos</h1>
+        <p class="text-sm text-slate-500 mt-1">
+          Revisa los movimientos del banco, asigna pagos y clasifica gastos.
+        </p>
+      </div>
+      <button id="resetBtn" class="btn-secondary">Nuevo proceso</button>
+    </header>
 
-        <div class="flex flex-wrap items-center gap-4">
-          <label class="flex items-center gap-2 text-sm">
+    <!-- CARGA DE ARCHIVOS -->
+    <section class="bg-white border rounded-2xl p-4 md:p-5 mb-6">
+      <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+        <div>
+          <h2 class="font-bold">Archivos del período</h2>
+          <p class="text-sm text-slate-500">
+            Selecciona el formulario de pagos y el estado bancario.
+          </p>
+        </div>
+        <button id="runBtn" disabled class="btn-primary">
+          Procesar archivos
+        </button>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-3">
+        <label id="formDrop" class="file-picker">
+          <span class="text-xl">📄</span>
+          <span class="font-semibold">Formulario de pagos</span>
+          <span id="formFileName" class="text-xs text-slate-500">
+            Seleccionar Excel o CSV
+          </span>
+          <input id="formFile" type="file" accept=".xlsx,.xls,.csv" hidden />
+        </label>
+
+        <label id="bankDrop" class="file-picker">
+          <span class="text-xl">🏦</span>
+          <span class="font-semibold">Estado bancario</span>
+          <span id="bankFileName" class="text-xs text-slate-500">
+            Seleccionar Excel o CSV
+          </span>
+          <input id="bankFile" type="file" accept=".xlsx,.xls,.csv" hidden />
+        </label>
+      </div>
+
+      <details class="mt-4 text-sm text-slate-500">
+        <summary class="cursor-pointer">Opciones de conciliación automática</summary>
+        <div class="flex flex-wrap gap-4 mt-3">
+          <label class="flex items-center gap-2">
             <input id="strictAmount" type="checkbox" checked />
             Verificar importes
           </label>
-
-          <label class="flex items-center gap-2 text-sm">
+          <label class="flex items-center gap-2">
             <input id="allowLocation" type="checkbox" checked />
             Usar manzana y villa
           </label>
+        </div>
+      </details>
+      <div id="message" class="hidden mt-4 rounded-lg p-3 text-sm"></div>
+    </section>
 
-          <button
-            id="runBtn"
-            disabled
-            class="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-xl px-5 py-2.5 font-semibold"
-          >
-            Conciliar archivos
-          </button>
+    <!-- RESUMEN -->
+    <section id="results" class="hidden">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        <article class="summary-card">
+          <p>Ingresos conciliados</p>
+          <strong id="sumMatched">$0,00</strong>
+          <span id="countMatched">0 movimientos</span>
+        </article>
+        <article class="summary-card">
+          <p>Ingresos pendientes</p>
+          <strong id="sumPending">$0,00</strong>
+          <span id="countPending">0 movimientos</span>
+        </article>
+        <article class="summary-card">
+          <p>Gastos clasificados</p>
+          <strong id="sumExpenses">$0,00</strong>
+          <span id="countExpenses">0 movimientos</span>
+        </article>
+        <article class="summary-card">
+          <p>Por clasificar</p>
+          <strong id="sumUnclassified">$0,00</strong>
+          <span id="countUnclassified">0 movimientos</span>
+        </article>
+      </div>
+
+      <section class="bg-white border rounded-2xl overflow-hidden">
+        <div class="p-4 md:p-5 border-b flex flex-wrap justify-between items-center gap-3">
+          <div>
+            <h2 class="font-bold text-lg">Movimientos bancarios</h2>
+            <p class="text-sm text-slate-500">
+              Asigna el registro del formulario o cambia la categoría del movimiento.
+            </p>
+          </div>
+          <button id="exportBtn" class="btn-secondary">Exportar Excel</button>
         </div>
 
-        <div id="message" class="hidden mt-4 rounded-lg p-3 text-sm"></div>
+        <div class="p-4 border-b flex flex-wrap gap-3">
+          <input id="searchBox" type="search"
+            placeholder="Buscar nombre, NUT, importe o referencia..."
+            class="field w-full md:max-w-md" />
+          <select id="statusFilter" class="field">
+            <option value="Todos">Todos los movimientos</option>
+            <option value="Conciliado">Conciliados</option>
+            <option value="Pendiente">Ingresos pendientes</option>
+            <option value="Gasto">Gastos</option>
+            <option value="Especial">Movimientos especiales</option>
+            <option value="Por clasificar">Por clasificar</option>
+          </select>
+          <span id="shownCount" class="text-sm text-slate-500 self-center"></span>
+        </div>
+
+        <div class="overflow-auto">
+          <table class="w-full min-w-[1250px] text-sm">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Movimiento bancario</th>
+                <th>NUT / referencia</th>
+                <th class="text-right">Valor banco</th>
+                <th>Registro del formulario</th>
+                <th class="text-right">Valor formulario</th>
+                <th>Categoría</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody id="bankTableBody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
       </section>
 
-      <!-- RESULTADOS -->
-      <section id="results" class="hidden">
-        <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
-          <div class="bg-white rounded-xl border p-4">
-            <div class="text-xs text-slate-500">Filas del formulario</div>
-            <div id="statForm" class="text-2xl font-bold mt-1">0</div>
+      <!-- PAGOS REPORTADOS SIN MOVIMIENTO BANCARIO -->
+      <section class="bg-white border rounded-2xl overflow-hidden mt-6">
+        <details>
+          <summary class="cursor-pointer p-4 md:p-5 font-semibold">
+            Pagos del formulario sin respaldo bancario
+            <span id="unmatchedFormCount" class="text-sm text-slate-500 font-normal ml-2"></span>
+          </summary>
+          <div class="overflow-auto border-t">
+            <table class="w-full min-w-[800px] text-sm">
+              <thead>
+                <tr>
+                  <th>Propietario</th>
+                  <th>Ubicación</th>
+                  <th>Período / tipo</th>
+                  <th>Comprobante</th>
+                  <th class="text-right">Valor reportado</th>
+                </tr>
+              </thead>
+              <tbody id="unmatchedFormBody" class="divide-y divide-slate-100"></tbody>
+            </table>
           </div>
-
-          <div class="bg-white rounded-xl border p-4">
-            <div class="text-xs text-slate-500">Movimientos bancarios</div>
-            <div id="statBank" class="text-2xl font-bold mt-1">0</div>
-          </div>
-
-          <div class="bg-white rounded-xl border p-4">
-            <div class="text-xs text-slate-500">Conciliados</div>
-            <div
-              id="statMatched"
-              class="text-2xl font-bold text-green-700 mt-1"
-            >
-              0
-            </div>
-          </div>
-
-          <div class="bg-white rounded-xl border p-4">
-            <div class="text-xs text-slate-500">Para revisar</div>
-            <div id="statReview" class="text-2xl font-bold text-amber-600 mt-1">
-              0
-            </div>
-          </div>
-
-          <div class="bg-white rounded-xl border p-4">
-            <div class="text-xs text-slate-500">Sin coincidencia</div>
-            <div id="statMissing" class="text-2xl font-bold text-red-600 mt-1">
-              0
-            </div>
-          </div>
-        </div>
-
-        <div class="space-y-6">
-          <!-- CONCILIADOS Y POR REVISAR -->
-          <section class="bg-white rounded-2xl border overflow-hidden">
-            <div class="p-5 border-b">
-              <div class="flex flex-col md:flex-row md:justify-between gap-3">
-                <div>
-                  <h2 class="font-bold text-lg">Conciliados y por revisar</h2>
-                  <p class="text-sm text-slate-500 mt-1">
-                    Pagos relacionados con un movimiento bancario.
-                  </p>
-                </div>
-
-                <button
-                  id="exportBtn"
-                  class="bg-slate-900 hover:bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm font-semibold h-fit"
-                >
-                  Exportar Excel
-                </button>
-              </div>
-
-              <div class="mt-4 flex flex-col md:flex-row gap-3">
-                <input
-                  id="searchBox"
-                  type="search"
-                  placeholder="Buscar propietario, NUT, manzana o villa..."
-                  class="w-full md:max-w-md border rounded-lg px-3 py-2 text-sm"
-                />
-                <div
-                  id="shownCount"
-                  class="text-sm text-slate-500 self-center"
-                ></div>
-              </div>
-            </div>
-
-            <div class="overflow-auto max-h-[600px]">
-              <table class="min-w-[1250px] w-full text-sm">
-                <thead
-                  class="bg-slate-50 text-slate-500 text-left sticky top-0"
-                >
-                  <tr>
-                    <th class="px-4 py-3">Propietario</th>
-                    <th class="px-4 py-3">Manzana</th>
-                    <th class="px-4 py-3">Villa</th>
-                    <th class="px-4 py-3">Valor formulario</th>
-                    <th class="px-4 py-3">Fecha de pago</th>
-                    <th class="px-4 py-3">Valor banco</th>
-                    <th class="px-4 py-3">NUT</th>
-                    <th class="px-4 py-3">Observación</th>
-                    <th class="px-4 py-3">Estado</th>
-                  </tr>
-                </thead>
-                <tbody
-                  id="matchedReviewBody"
-                  class="divide-y divide-slate-100"
-                ></tbody>
-              </table>
-            </div>
-          </section>
-
-          <!-- FORMULARIO SIN COINCIDENCIA -->
-          <section class="bg-white rounded-2xl border overflow-hidden">
-            <div class="p-5 border-b">
-              <h2 class="font-bold text-lg">Formulario sin coincidencia</h2>
-              <p class="text-sm text-slate-500 mt-1">
-                Registros reportados que no se asociaron a un ingreso bancario.
-              </p>
-              <span
-                id="formOnlyCount"
-                class="text-xs text-slate-500 mt-2 inline-block"
-              ></span>
-            </div>
-
-            <div class="overflow-auto max-h-[420px]">
-              <table class="min-w-[900px] w-full text-sm">
-                <thead
-                  class="bg-slate-50 text-slate-500 text-left sticky top-0"
-                >
-                  <tr>
-                    <th class="px-4 py-3">Propietario</th>
-                    <th class="px-4 py-3">Manzana</th>
-                    <th class="px-4 py-3">Villa</th>
-                    <th class="px-4 py-3">Período / tipo</th>
-                    <th class="px-4 py-3">Valor</th>
-                    <th class="px-4 py-3">Comprobante</th>
-                    <th class="px-4 py-3">Fila</th>
-                  </tr>
-                </thead>
-                <tbody
-                  id="formOnlyBody"
-                  class="divide-y divide-slate-100"
-                ></tbody>
-              </table>
-            </div>
-          </section>
-
-          <!-- BANCO SIN COINCIDENCIA -->
-          <section class="bg-white rounded-2xl border overflow-hidden">
-            <div class="p-5 border-b">
-              <h2 class="font-bold text-lg">Banco sin coincidencia</h2>
-              <p class="text-sm text-slate-500 mt-1">
-                Ingresos bancarios que no se asociaron a un registro del
-                formulario.
-              </p>
-              <span
-                id="bankOnlyCount"
-                class="text-xs text-slate-500 mt-2 inline-block"
-              ></span>
-            </div>
-
-            <div class="overflow-auto max-h-[420px]">
-              <table class="min-w-[1000px] w-full text-sm">
-                <thead
-                  class="bg-slate-50 text-slate-500 text-left sticky top-0"
-                >
-                  <tr>
-                    <th class="px-4 py-3">Ordenante / concepto</th>
-                    <th class="px-4 py-3">Fecha de pago</th>
-                    <th class="px-4 py-3">Valor banco</th>
-                    <th class="px-4 py-3">NUT</th>
-                    <th class="px-4 py-3">Referencia</th>
-                    <th class="px-4 py-3">Fila</th>
-                  </tr>
-                </thead>
-                <tbody
-                  id="bankOnlyBody"
-                  class="divide-y divide-slate-100"
-                ></tbody>
-              </table>
-            </div>
-          </section>
-
-          <!-- MOVIMIENTOS IGNORADOS -->
-          <details class="bg-white rounded-2xl border overflow-hidden">
-            <summary class="p-5 cursor-pointer font-semibold">
-              Movimientos ignorados (débitos, gastos y movimientos especiales)
-            </summary>
-
-            <div class="overflow-auto max-h-[350px] border-t">
-              <table class="min-w-[800px] w-full text-sm">
-                <thead
-                  class="bg-slate-50 text-slate-500 text-left sticky top-0"
-                >
-                  <tr>
-                    <th class="px-4 py-3">Concepto</th>
-                    <th class="px-4 py-3">Fecha</th>
-                    <th class="px-4 py-3">Valor</th>
-                    <th class="px-4 py-3">NUT</th>
-                    <th class="px-4 py-3">Motivo</th>
-                  </tr>
-                </thead>
-                <tbody
-                  id="ignoredBody"
-                  class="divide-y divide-slate-100"
-                ></tbody>
-              </table>
-            </div>
-          </details>
-        </div>
-
-        <p class="text-xs text-slate-500 mt-4">
-          Versión inicial: la conciliación utiliza reglas automáticas y
-          heurísticas. Revisa las coincidencias y diferencias antes de
-          considerarlas definitivas.
-        </p>
+        </details>
       </section>
-    </div>
-    <script src="app.js"></script>
-  </body>
+
+      <p class="text-xs text-slate-500 mt-4">
+        Los cambios manuales se guardan en este navegador. Verifica los importes
+        y las asignaciones antes de cerrar la conciliación.
+      </p>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
 </html>
