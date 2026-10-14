@@ -148,82 +148,163 @@
           </div>
         </div>
 
-        <div class="bg-white rounded-2xl border overflow-hidden">
-          <div
-            class="p-5 border-b flex flex-col md:flex-row md:justify-between gap-3"
-          >
-            <div>
-              <h2 class="font-bold text-lg">Detalle de conciliación</h2>
-              <p class="text-sm text-slate-500">
-                Verifica los resultados antes de cerrar el mes.
-              </p>
+        <div class="space-y-6">
+          <!-- CONCILIADOS Y POR REVISAR -->
+          <section class="bg-white rounded-2xl border overflow-hidden">
+            <div class="p-5 border-b">
+              <div class="flex flex-col md:flex-row md:justify-between gap-3">
+                <div>
+                  <h2 class="font-bold text-lg">Conciliados y por revisar</h2>
+                  <p class="text-sm text-slate-500 mt-1">
+                    Pagos relacionados con un movimiento bancario.
+                  </p>
+                </div>
+
+                <button
+                  id="exportBtn"
+                  class="bg-slate-900 hover:bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm font-semibold h-fit"
+                >
+                  Exportar Excel
+                </button>
+              </div>
+
+              <div class="mt-4 flex flex-col md:flex-row gap-3">
+                <input
+                  id="searchBox"
+                  type="search"
+                  placeholder="Buscar propietario, NUT, manzana o villa..."
+                  class="w-full md:max-w-md border rounded-lg px-3 py-2 text-sm"
+                />
+                <div
+                  id="shownCount"
+                  class="text-sm text-slate-500 self-center"
+                ></div>
+              </div>
             </div>
 
-            <button
-              id="exportBtn"
-              class="bg-slate-900 hover:bg-slate-800 text-white rounded-xl px-4 py-2.5 text-sm font-semibold"
-            >
-              Exportar Excel
-            </button>
-          </div>
+            <div class="overflow-auto max-h-[600px]">
+              <table class="min-w-[1250px] w-full text-sm">
+                <thead
+                  class="bg-slate-50 text-slate-500 text-left sticky top-0"
+                >
+                  <tr>
+                    <th class="px-4 py-3">Propietario</th>
+                    <th class="px-4 py-3">Manzana</th>
+                    <th class="px-4 py-3">Villa</th>
+                    <th class="px-4 py-3">Valor formulario</th>
+                    <th class="px-4 py-3">Fecha de pago</th>
+                    <th class="px-4 py-3">Valor banco</th>
+                    <th class="px-4 py-3">NUT</th>
+                    <th class="px-4 py-3">Observación</th>
+                    <th class="px-4 py-3">Estado</th>
+                  </tr>
+                </thead>
+                <tbody
+                  id="matchedReviewBody"
+                  class="divide-y divide-slate-100"
+                ></tbody>
+              </table>
+            </div>
+          </section>
 
-          <div class="px-4 border-b flex flex-wrap gap-5 text-sm font-semibold">
-            <button class="filterTab tab-active py-3" data-filter="Todos">
-              Todos
-            </button>
-            <button
-              class="filterTab py-3 text-slate-500"
-              data-filter="Conciliado"
-            >
-              Conciliados
-            </button>
-            <button class="filterTab py-3 text-slate-500" data-filter="Revisar">
-              Revisar
-            </button>
-            <button
-              class="filterTab py-3 text-slate-500"
-              data-filter="Sin coincidencia"
-            >
-              Sin coincidencia
-            </button>
-            <button
-              class="filterTab py-3 text-slate-500"
-              data-filter="Ignorado"
-            >
-              Ignorados
-            </button>
-          </div>
+          <!-- FORMULARIO SIN COINCIDENCIA -->
+          <section class="bg-white rounded-2xl border overflow-hidden">
+            <div class="p-5 border-b">
+              <h2 class="font-bold text-lg">Formulario sin coincidencia</h2>
+              <p class="text-sm text-slate-500 mt-1">
+                Registros reportados que no se asociaron a un ingreso bancario.
+              </p>
+              <span
+                id="formOnlyCount"
+                class="text-xs text-slate-500 mt-2 inline-block"
+              ></span>
+            </div>
 
-          <div class="p-4 flex flex-col md:flex-row gap-3">
-            <input
-              id="searchBox"
-              type="search"
-              placeholder="Buscar propietario, comprobante, NUT, manzana o villa..."
-              class="w-full md:max-w-md border rounded-lg px-3 py-2 text-sm"
-            />
-            <div
-              id="shownCount"
-              class="text-sm text-slate-500 self-center"
-            ></div>
-          </div>
+            <div class="overflow-auto max-h-[420px]">
+              <table class="min-w-[900px] w-full text-sm">
+                <thead
+                  class="bg-slate-50 text-slate-500 text-left sticky top-0"
+                >
+                  <tr>
+                    <th class="px-4 py-3">Propietario</th>
+                    <th class="px-4 py-3">Manzana</th>
+                    <th class="px-4 py-3">Villa</th>
+                    <th class="px-4 py-3">Período / tipo</th>
+                    <th class="px-4 py-3">Valor</th>
+                    <th class="px-4 py-3">Comprobante</th>
+                    <th class="px-4 py-3">Fila</th>
+                  </tr>
+                </thead>
+                <tbody
+                  id="formOnlyBody"
+                  class="divide-y divide-slate-100"
+                ></tbody>
+              </table>
+            </div>
+          </section>
 
-          <div class="overflow-auto max-h-[650px]">
-            <table class="min-w-[1250px] w-full text-sm">
-              <thead class="bg-slate-50 text-slate-500 text-left">
-                <tr>
-                  <th class="px-4 py-3">Estado</th>
-                  <th class="px-4 py-3">Propietario / ubicación</th>
-                  <th class="px-4 py-3">Período / tipo</th>
-                  <th class="px-4 py-3">Formulario</th>
-                  <th class="px-4 py-3">Fecha banco</th>
-                  <th class="px-4 py-3">NUT</th>
-                  <th class="px-4 py-3">Importe banco</th>
-                  <th class="px-4 py-3">Método / observación</th>
-                </tr>
-              </thead>
-              <tbody id="resultBody" class="divide-y divide-slate-100"></tbody>
-            </table>
-          </div>
+          <!-- BANCO SIN COINCIDENCIA -->
+          <section class="bg-white rounded-2xl border overflow-hidden">
+            <div class="p-5 border-b">
+              <h2 class="font-bold text-lg">Banco sin coincidencia</h2>
+              <p class="text-sm text-slate-500 mt-1">
+                Ingresos bancarios que no se asociaron a un registro del
+                formulario.
+              </p>
+              <span
+                id="bankOnlyCount"
+                class="text-xs text-slate-500 mt-2 inline-block"
+              ></span>
+            </div>
+
+            <div class="overflow-auto max-h-[420px]">
+              <table class="min-w-[1000px] w-full text-sm">
+                <thead
+                  class="bg-slate-50 text-slate-500 text-left sticky top-0"
+                >
+                  <tr>
+                    <th class="px-4 py-3">Ordenante / concepto</th>
+                    <th class="px-4 py-3">Fecha de pago</th>
+                    <th class="px-4 py-3">Valor banco</th>
+                    <th class="px-4 py-3">NUT</th>
+                    <th class="px-4 py-3">Referencia</th>
+                    <th class="px-4 py-3">Fila</th>
+                  </tr>
+                </thead>
+                <tbody
+                  id="bankOnlyBody"
+                  class="divide-y divide-slate-100"
+                ></tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- MOVIMIENTOS IGNORADOS -->
+          <details class="bg-white rounded-2xl border overflow-hidden">
+            <summary class="p-5 cursor-pointer font-semibold">
+              Movimientos ignorados (débitos, gastos y movimientos especiales)
+            </summary>
+
+            <div class="overflow-auto max-h-[350px] border-t">
+              <table class="min-w-[800px] w-full text-sm">
+                <thead
+                  class="bg-slate-50 text-slate-500 text-left sticky top-0"
+                >
+                  <tr>
+                    <th class="px-4 py-3">Concepto</th>
+                    <th class="px-4 py-3">Fecha</th>
+                    <th class="px-4 py-3">Valor</th>
+                    <th class="px-4 py-3">NUT</th>
+                    <th class="px-4 py-3">Motivo</th>
+                  </tr>
+                </thead>
+                <tbody
+                  id="ignoredBody"
+                  class="divide-y divide-slate-100"
+                ></tbody>
+              </table>
+            </div>
+          </details>
         </div>
 
         <p class="text-xs text-slate-500 mt-4">

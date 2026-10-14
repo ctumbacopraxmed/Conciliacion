@@ -816,96 +816,218 @@ function updateStats() {
   ).length;
 }
 
+
 function renderResults() {
   const query = norm($("searchBox").value);
 
-  const visible = results.filter((row) => {
-    const matchesFilter =
-      activeFilter === "Todos" || row._status === activeFilter;
+  const bankFor = (row) =>
+    (row._bankIds || [])
+      .map((index) => bankRows[index])
+      .filter(Boolean);
 
-    const bankNuts = (row._bankIds || [])
-      .map((index) => bankRows[index]?.__nut || "")
-      .join(" ");
+  function matchesQuery(row, bank = []) {
+    const text = norm([
+      row.__name,
+      row.__block,
+      row.__villa,
+      row.__receipt,
+      row.__month,
+      row.__year,
+      row.__type,
+      row._method,
+      row._note,
+      ...bank.map((item) => [
+        item.__nut,
+        item.__concept,
+        item.__description,
+        item.__reference,
+        item.__date,
+      ].join(" ")),
+    ].join(" "));
 
-    const text = norm(
-      [
-        row.__name,
-        row.__block,
-        row.__villa,
-        row.__receipt,
-        row.__month,
-        row.__year,
-        row._method,
-        row._note,
-        bankNuts,
-      ].join(" "),
-    );
+    return !query || text.includes(query);
+  }
 
-    return matchesFilter && (!query || text.includes(query));
-  });
+  const matchedReview = results.filter((row) =>
+    !row.__isBankOnly &&
+    ["Conciliado", "Revisar"].includes(row._status) &&
+    matchesQuery(row, bankFor(row))
+  );
+
+  const formOnly = results.filter((row) =>
+    !row.__isBankOnly &&
+    row._status === "Sin coincidencia" &&
+    matchesQuery(row, bankFor(row))
+  );
+
+  const bankOnly = results.filter((row) =>
+    row.__isBankOnly &&
+    row._status === "Sin coincidencia" &&
+    matchesQuery(row, bankFor(row))
+  );
+
+  const ignored = results.filter((row) =>
+    row.__isBankOnly &&
+    row._status === "Ignorado" &&
+    matchesQuery(row, bankFor(row))
+  );
 
   $("shownCount").textContent =
-    `Mostrando ${visible.length} de ${results.length} filas`;
+    `${matchedReview.length} conciliados/por revisar · ` +
+    `${formOnly.length} del formulario sin coincidencia · ` +
+    `${bankOnly.length} del banco sin coincidencia`;
 
-  $("resultBody").innerHTML =
-    visible
-      .map((row) => {
-        const bank = (row._bankIds || [])
-          .map((index) => bankRows[index])
-          .filter(Boolean);
+  $("formOnlyCount").textContent =
+    `${formOnly.length} registros`;
 
-        const bankDate =
-          bank
-            .map((item) => item.__date)
-            .filter(Boolean)
-            .join(", ") || "—";
-        const nuts =
-          bank
-            .map((item) => item.__nut)
-            .filter(Boolean)
-            .join(", ") || "—";
+  $("bankOnlyCount").textContent =
+    `${bankOnly.length} movimientos`;
 
-        const formInfo = row.__isBankOnly
-          ? `Movimiento #${row.__row}`
-          : `Fila #${row.__row} · ${esc(row.__receipt || "Sin comprobante")}`;
+  // 1. Conciliados y por revisar
+  $("matchedReviewBody").innerHTML = matchedReview.map((row) => {
+    const bank = bankFor(row);
 
-        const owner = row.__name || "(Propietario no registrado)";
+    const dates = bank
+      .map((item) => item.__date)
+      .filter(Boolean)
+      .join(", ") || "—";
 
-        const location =
-          row.__block || row.__villa
-            ? `Mz. ${esc(row.__block || "—")} · Villa ${esc(row.__villa || "—")}`
-            : "—";
+    const nuts = bank
+      .map((item) => item.__nut)
+      .filter(Boolean)
+      .join(", ") || "—";
 
-        return `
-<tr class="hover:bg-slate-50 align-top">
-<td class="px-4 py-3">${statusPill(row._status)}</td>
-<td class="px-4 py-3">
-    <div class="font-semibold">${esc(owner)}</div>
-    <div class="text-xs text-slate-500 mt-1">${location}</div>
-</td>
-<td class="px-4 py-3">
-    <div>${esc(periodText(row) || "—")}</div>
-    <div class="text-xs text-slate-500 mt-1">${esc(row.__type || "—")}</div>
-</td>
-<td class="px-4 py-3">
-    <div class="font-medium">${row.__isBankOnly ? "—" : money(row.__amount)}</div>
-    <div class="text-xs text-slate-500 mt-1">${formInfo}</div>
-</td>
-<td class="px-4 py-3">${esc(bankDate)}</td>
-<td class="px-4 py-3 font-mono text-xs">${esc(nuts)}</td>
-<td class="px-4 py-3 font-semibold">${money(row._bankAmount)}</td>
-<td class="px-4 py-3 max-w-sm">
-    <div class="font-medium">${esc(row._method || "—")}</div>
-    <div class="text-xs text-slate-500 mt-1 whitespace-normal">${esc(row._note || "")}</div>
-</td>
-</tr>`;
-      })
-      .join("") ||
-    `
-<tr><td colspan="8" class="px-4 py-12 text-center text-slate-500">
-No hay resultados para este filtro.
-</td></tr>`;
+    const observation = row._status === "Revisar"
+      ? row._note || "Requiere validación manual."
+      : "—";
+
+    return `
+      <tr class="hover:bg-slate-50 align-top">
+        <td class="px-4 py-3 font-semibold">
+          ${esc(row.__name || "(Propietario no registrado)")}
+        </td>
+        <td class="px-4 py-3">${esc(row.__block || "—")}</td>
+        <td class="px-4 py-3">${esc(row.__villa || "—")}</td>
+        <td class="px-4 py-3 font-medium whitespace-nowrap">
+          ${money(row.__amount)}
+        </td>
+        <td class="px-4 py-3 whitespace-nowrap">
+          ${esc(dates)}
+        </td>
+        <td class="px-4 py-3 font-medium whitespace-nowrap">
+          ${money(row._bankAmount)}
+        </td>
+        <td class="px-4 py-3 font-mono text-xs">
+          ${esc(nuts)}
+        </td>
+        <td class="px-4 py-3 max-w-sm whitespace-normal">
+          ${esc(observation)}
+        </td>
+        <td class="px-4 py-3">
+          ${statusPill(row._status)}
+        </td>
+      </tr>`;
+  }).join("") || `
+    <tr>
+      <td colspan="9" class="px-4 py-8 text-center text-slate-500">
+        No hay registros conciliados o por revisar.
+      </td>
+    </tr>`;
+
+  // 2. Registros del formulario sin coincidencia
+  $("formOnlyBody").innerHTML = formOnly.map((row) => `
+    <tr class="hover:bg-slate-50 align-top">
+      <td class="px-4 py-3 font-semibold">
+        ${esc(row.__name || "(Propietario no registrado)")}
+      </td>
+      <td class="px-4 py-3">${esc(row.__block || "—")}</td>
+      <td class="px-4 py-3">${esc(row.__villa || "—")}</td>
+      <td class="px-4 py-3">
+        ${esc(periodText(row) || "—")}
+        <div class="text-xs text-slate-500 mt-1">
+          ${esc(row.__type || "—")}
+        </div>
+      </td>
+      <td class="px-4 py-3 font-medium whitespace-nowrap">
+        ${money(row.__amount)}
+      </td>
+      <td class="px-4 py-3 font-mono text-xs">
+        ${esc(row.__receipt || "—")}
+      </td>
+      <td class="px-4 py-3">${esc(row.__row)}</td>
+    </tr>
+  `).join("") || `
+    <tr>
+      <td colspan="7" class="px-4 py-8 text-center text-slate-500">
+        No hay registros del formulario sin coincidencia.
+      </td>
+    </tr>`;
+
+  // 3. Movimientos bancarios sin coincidencia
+  $("bankOnlyBody").innerHTML = bankOnly.map((row) => {
+    const bank = bankFor(row)[0];
+
+    return `
+      <tr class="hover:bg-slate-50 align-top">
+        <td class="px-4 py-3">
+          <div class="font-semibold">
+            ${esc(bankName(bank) || bank.__description || "—")}
+          </div>
+          <div class="text-xs text-slate-500 mt-1">
+            ${esc(bank.__description || bank.__type || "")}
+          </div>
+        </td>
+        <td class="px-4 py-3 whitespace-nowrap">
+          ${esc(bank.__date || "—")}
+        </td>
+        <td class="px-4 py-3 font-semibold whitespace-nowrap">
+          ${money(bank.__amount)}
+        </td>
+        <td class="px-4 py-3 font-mono text-xs">
+          ${esc(bank.__nut || "—")}
+        </td>
+        <td class="px-4 py-3 max-w-sm whitespace-normal">
+          ${esc(bank.__reference || "—")}
+        </td>
+        <td class="px-4 py-3">${esc(bank.__row)}</td>
+      </tr>`;
+  }).join("") || `
+    <tr>
+      <td colspan="6" class="px-4 py-8 text-center text-slate-500">
+        No hay ingresos bancarios sin coincidencia.
+      </td>
+    </tr>`;
+
+  // 4. Movimientos ignorados
+  $("ignoredBody").innerHTML = ignored.map((row) => {
+    const bank = bankFor(row)[0];
+
+    return `
+      <tr class="hover:bg-slate-50 align-top">
+        <td class="px-4 py-3">
+          ${esc(bank.__concept || bank.__description || "—")}
+        </td>
+        <td class="px-4 py-3 whitespace-nowrap">
+          ${esc(bank.__date || "—")}
+        </td>
+        <td class="px-4 py-3 font-medium whitespace-nowrap">
+          ${money(bank.__amount)}
+        </td>
+        <td class="px-4 py-3 font-mono text-xs">
+          ${esc(bank.__nut || "—")}
+        </td>
+        <td class="px-4 py-3">
+          ${esc(row._note || "—")}
+        </td>
+      </tr>`;
+  }).join("") || `
+    <tr>
+      <td colspan="5" class="px-4 py-6 text-center text-slate-500">
+        No hay movimientos ignorados.
+      </td>
+    </tr>`;
 }
+
 
 /*
  * EXPORTAR RESULTADOS
@@ -999,18 +1121,6 @@ $("runBtn").addEventListener("click", reconcile);
 $("searchBox").addEventListener("input", renderResults);
 $("exportBtn").addEventListener("click", exportResults);
 
-document.querySelectorAll(".filterTab").forEach((button) => {
-  button.addEventListener("click", () => {
-    activeFilter = button.dataset.filter;
-
-    document.querySelectorAll(".filterTab").forEach((tab) => {
-      tab.classList.toggle("tab-active", tab === button);
-      tab.classList.toggle("text-slate-500", tab !== button);
-    });
-
-    renderResults();
-  });
-});
 
 $("resetBtn").addEventListener("click", () => {
   formRows = [];
