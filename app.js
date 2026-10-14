@@ -302,7 +302,7 @@ function locationTokens(text) {
   let villa = "";
 
   let match = value.match(
-    /\b(?:MANZANA|MANZ|MZ)\s*([A-Z0-9-]+)\s*(?:VILLA|VIV|CASA|V)\s*([A-Z0-9-]+)\b/,
+    /\b(?:MANZANA|MANZ|MZ)\s*([A-Z0-9-]+?)\s*(?:VILLA|VIV|CASA|V)\s*([A-Z0-9-]+)\b/,
   );
 
   if (match) {
@@ -357,36 +357,95 @@ function locationMatch(form, bank) {
 /*
  * NORMALIZACIÓN DEL NOMBRE DEL ORDENANTE
  */
-function bankName(bank) {
-  let name = bank.__concept || "";
 
+function bankName(bank) {
+  let name = String(bank.__concept || "").trim();
+
+  // Eliminar datos de cuenta y sufijos bancarios.
   name = name.replace(/^\s*(DE|DESDE)\s+\d+\s*[-–]?\s*/i, "");
   name = name.replace(/\s+A\s+\d{4,}.*$/i, "");
+  name = name.replace(/\b\d{2,}[X*]{2,}\d*\b.*$/i, "");
+  name = name.replace(
+    /\b(?:BANCO|PICHINCHA|GUAYAQUIL|PACIFICO|PRODUBANCO|BOLIVARIANO|INTERNACIONAL|AUSTRO)\b.*$/i,
+    "",
+  );
+  name = name.replace(/\s+/g, " ").trim();
 
   return name || bank.__reference || "";
 }
 
+function nameTokens(value) {
+  const ignored = new Set([
+    "BANCO",
+    "PICHINCHA",
+    "GUAYAQUIL",
+    "PACIFICO",
+    "PRODUBANCO",
+    "BOLIVARIANO",
+    "INTERNACIONAL",
+    "AUSTRO",
+    "COOP",
+    "COOPERATIVA",
+    "CTA",
+    "CUENTA",
+    "AHORRO",
+    "AHORROS",
+    "CORRIENTE",
+    "TRANSFERENCIA",
+  ]);
+
+  return norm(value)
+    .split(" ")
+    .filter((token) => token.length > 1 && !ignored.has(token));
+}
+
+function tokenNameMatch(a, b) {
+  if (a === b) return true;
+
+  // Permite comparar una inicial con el inicio de un nombre.
+  return (
+    (a.length === 1 && b.startsWith(a)) || (b.length === 1 && a.startsWith(b))
+  );
+}
+
 function nameScore(a, b) {
-  const first = norm(a);
-  const second = norm(b);
+  const A = nameTokens(a);
+  const B = nameTokens(b);
 
-  if (!first || !second) return 0;
-  if (first === second) return 1;
+  if (!A.length || !B.length) return 0;
+  if (A.join(" ") === B.join(" ")) return 1;
 
-  if (first.includes(second) || second.includes(first)) {
-    return Math.min(
-      0.96,
-      Math.min(first.length, second.length) /
-        Math.max(first.length, second.length) +
-        0.12,
-    );
+  const used = new Set();
+  let matched = 0;
+
+  for (const tokenA of A) {
+    let bestIndex = -1;
+    let bestLength = -1;
+
+    B.forEach((tokenB, index) => {
+      if (used.has(index) || !tokenNameMatch(tokenA, tokenB)) return;
+
+      const length = Math.min(tokenA.length, tokenB.length);
+
+      if (length > bestLength) {
+        bestLength = length;
+        bestIndex = index;
+      }
+    });
+
+    if (bestIndex >= 0) {
+      used.add(bestIndex);
+      matched++;
+    }
   }
 
-  const A = new Set(first.split(" "));
-  const B = new Set(second.split(" "));
+  const coverage = matched / Math.max(A.length, B.length);
 
-  const common = [...A].filter((word) => word.length > 2 && B.has(word)).length;
-  return common / Math.max(A.size, B.size, 1);
+  if (matched === Math.min(A.length, B.length) && coverage >= 0.75) {
+    return Math.min(0.98, coverage + 0.12);
+  }
+
+  return coverage;
 }
 
 /*
